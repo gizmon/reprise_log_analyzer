@@ -47,6 +47,10 @@ tr:hover td{background:#f5f5f3}
 .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem}
 .filters select,.filters input{font-size:13px;padding:5px 10px;border-radius:8px;border:0.5px solid #ccc;background:#fff;color:#1a1a1a;font-family:inherit}
 .no-data{color:#888;padding:1.5rem;text-align:center;font-size:13px}
+.sort-dir{padding:4px 10px;border-radius:6px;border:none;background:none;cursor:pointer;font-size:12px;color:#666;font-family:inherit}
+.sort-dir.active{background:#fff;color:#1a1a1a;border:0.5px solid #ccc;font-weight:500}
+.gran-btn{padding:4px 10px;border-radius:6px;border:none;background:none;cursor:pointer;font-size:12px;color:#666;font-family:inherit}
+.gran-btn.active{background:#fff;color:#1a1a1a;border:0.5px solid #ccc;font-weight:500}
 .sample-btn{margin-top:.75rem;padding:7px 18px;border-radius:8px;border:0.5px solid #ccc;background:#fff;cursor:pointer;font-size:13px;color:#1a1a1a;font-family:inherit}
 .sample-btn:hover{background:#f0f0f0}
 </style>
@@ -104,17 +108,28 @@ tr:hover td{background:#f5f5f3}
 
   <div class="panel" id="tab-hourly">
     <div class="section">
-      <div class="sec-title">時間別チェックアウト数（0〜23時）</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:.75rem">
+        <div class="sec-title" id="hourlySecTitle">時間別チェックアウト数</div>
+        <div style="display:flex;gap:2px;background:#eee;padding:3px;border-radius:8px">
+          <button class="gran-btn active" data-gran="hourly">時間別</button>
+          <button class="gran-btn" data-gran="weekly">週別</button>
+          <button class="gran-btn" data-gran="monthly">月別</button>
+        </div>
+      </div>
       <div class="legend">
         <span><span class="dot" style="background:#185FA5"></span>チェックアウト</span>
         <span><span class="dot" style="background:#3B6D11"></span>チェックイン</span>
         <span><span class="dot" style="background:#A32D2D"></span>拒否</span>
       </div>
-      <div class="chart-wrap" style="height:260px"><canvas id="cHourly" role="img" aria-label="時間別チェックアウト数グラフ">時間別チェックアウト数</canvas></div>
+      <div class="chart-wrap" style="height:260px"><canvas id="cHourly" role="img" aria-label="集計グラフ">集計グラフ</canvas></div>
     </div>
     <div class="section">
-      <div class="sec-title">ピーク時間帯（上位5）</div>
+      <div class="sec-title" id="peakTitle">ピーク時間帯（上位5）</div>
       <div id="peakList"></div>
+    </div>
+    <div class="section">
+      <div class="sec-title">集計テーブル</div>
+      <div id="granTable"></div>
     </div>
   </div>
 
@@ -127,7 +142,26 @@ tr:hover td{background:#f5f5f3}
 
   <div class="panel" id="tab-users">
     <div class="section">
-      <div class="sec-title">ユーザー別使用状況（上位20名）</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:.75rem">
+        <div class="sec-title" id="userSecTitle">ユーザー別使用状況（上位20名）</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="userSortKey" style="font-size:12px;padding:4px 8px;border-radius:8px;border:0.5px solid #ccc;background:#fff;color:#1a1a1a;font-family:inherit">
+            <option value="OUT">チェックアウト数</option>
+            <option value="IN">チェックイン数</option>
+            <option value="DENY">拒否数</option>
+            <option value="sec">合計使用時間</option>
+          </select>
+          <div style="display:flex;align-items:center;gap:5px;font-size:12px;color:#666">
+            <label for="userCount">表示件数</label>
+            <input id="userCount" type="number" min="1" max="500" value="20" style="width:58px;font-size:12px;padding:4px 6px;border-radius:8px;border:0.5px solid #ccc;background:#fff;color:#1a1a1a;font-family:inherit;text-align:center">
+            <span>名</span>
+          </div>
+          <div style="display:flex;gap:2px;background:#eee;padding:3px;border-radius:8px">
+            <button id="btnTop" class="sort-dir active" data-dir="top">上位</button>
+            <button id="btnBottom" class="sort-dir" data-dir="bottom">下位</button>
+          </div>
+        </div>
+      </div>
       <div class="tbl-wrap" id="userTbl"></div>
     </div>
   </div>
@@ -147,14 +181,20 @@ tr:hover td{background:#f5f5f3}
 let events=[];const charts={};
 
 function genSample(){
-  const products=['Lite','Pro','BIM','Mechanical','Ultimate'];
+  const products=['MATLAB','Simulink','AutoCAD','SolidWorks','ANSYS Mechanical'];
   const users=['tanaka','suzuki','sato','yamada','ito','nakamura','kobayashi','watanabe','kato','yoshida'];
   const hosts=['ws-01','ws-02','ws-03','ws-04','ws-05','srv-01'];
   let lines=[];
-  const base=new Date('2024/04/15');
+  // span 3 months: 2024/02/01 〜 2024/04/30 (90 days)
+  const base=new Date('2024-02-01T00:00:00');
+  const spanMs=90*24*3600000;
   lines.push('START mathworks');
-  for(let i=0;i<500;i++){
-    const t=new Date(base.getTime()+Math.random()*86400000);
+  for(let i=0;i<1200;i++){
+    // business-hour bias: weight events 08-18h on weekdays
+    let t;
+    do{t=new Date(base.getTime()+Math.random()*spanMs);}while(Math.random()<0.6&&(t.getDay()===0||t.getDay()===6));
+    const hourBias=Math.random()<0.75?8+Math.floor(Math.random()*10):Math.floor(Math.random()*24);
+    t.setHours(hourBias,Math.floor(Math.random()*60),0,0);
     const prod=products[Math.floor(Math.random()*products.length)];
     const user=users[Math.floor(Math.random()*users.length)];
     const host=hosts[Math.floor(Math.random()*hosts.length)];
@@ -226,14 +266,86 @@ function renderOverview(ev){
   document.getElementById('recentTbl').innerHTML=buildEvtTable(recent);
 }
 
+let currentGran='hourly';
+
+// ISO week key: yyyy-Www  (Monday-based)
+function isoWeekKey(dt){
+  const d=new Date(Date.UTC(dt.getFullYear(),dt.getMonth(),dt.getDate()));
+  const day=d.getUTCDay()||7;
+  d.setUTCDate(d.getUTCDate()+4-day);
+  const yearStart=new Date(Date.UTC(d.getUTCFullYear(),0,1));
+  const week=Math.ceil(((d-yearStart)/86400000+1)/7);
+  return`${d.getUTCFullYear()}-W${String(week).padStart(2,'0')}`;
+}
+// Monday of the ISO week
+function mondayOfWeek(isoKey){
+  const[y,w]=isoKey.split('-W').map(Number);
+  const jan4=new Date(Date.UTC(y,0,4));
+  const mon=new Date(jan4);
+  mon.setUTCDate(jan4.getUTCDate()-(jan4.getUTCDay()||7)+1+7*(w-1));
+  return mon;
+}
+function fmtDate(d){return`${d.getUTCFullYear()}/${String(d.getUTCMonth()+1).padStart(2,'0')}/${String(d.getUTCDate()).padStart(2,'0')}`;}
+
 function renderHourly(ev){
-  const h=Array.from({length:24},()=>({OUT:0,IN:0,DENY:0}));
-  for(const e of ev){const hr=e.dt.getHours();if(!isNaN(hr))h[hr][e.type]++;}
+  const gran=currentGran;
+  let labels,buckets,tableHtml='';
+
+  if(gran==='hourly'){
+    labels=Array.from({length:24},(_,i)=>`${String(i).padStart(2,'0')}:00`);
+    buckets=Array.from({length:24},()=>({OUT:0,IN:0,DENY:0}));
+    for(const e of ev){const k=e.dt.getHours();if(!isNaN(k))buckets[k][e.type]++;}
+    document.getElementById('hourlySecTitle').textContent='時間別チェックアウト数（0〜23時）';
+    document.getElementById('peakTitle').textContent='ピーク時間帯（上位5）';
+    // summary table
+    tableHtml=`<table><thead><tr><th style="width:15%">時間</th><th style="width:18%">OUT</th><th style="width:18%">IN</th><th style="width:18%">拒否</th><th style="width:31%">合計</th></tr></thead><tbody>${buckets.map((b,i)=>`<tr><td>${String(i).padStart(2,'0')}:00〜${String(i+1).padStart(2,'0')}:00</td><td>${b.OUT}</td><td>${b.IN}</td><td>${b.DENY}</td><td>${b.OUT+b.IN+b.DENY}</td></tr>`).join('')}</tbody></table>`;
+
+  } else if(gran==='weekly'){
+    const weekMap={};
+    for(const e of ev){
+      if(isNaN(e.dt.getTime()))continue;
+      const k=isoWeekKey(e.dt);
+      if(!weekMap[k])weekMap[k]={OUT:0,IN:0,DENY:0};
+      weekMap[k][e.type]++;
+    }
+    const sortedKeys=Object.keys(weekMap).sort();
+    // label = "M/D〜M/D (Www)"
+    labels=sortedKeys.map(k=>{
+      const mon=mondayOfWeek(k);
+      const sun=new Date(mon);sun.setUTCDate(mon.getUTCDate()+6);
+      return`${String(mon.getUTCMonth()+1).padStart(2,'0')}/${String(mon.getUTCDate()).padStart(2,'0')}〜${String(sun.getUTCMonth()+1).padStart(2,'0')}/${String(sun.getUTCDate()).padStart(2,'0')}`;
+    });
+    buckets=sortedKeys.map(k=>weekMap[k]);
+    document.getElementById('hourlySecTitle').textContent='週別チェックアウト数';
+    document.getElementById('peakTitle').textContent='ピーク週（上位5）';
+    tableHtml=`<table><thead><tr><th style="width:12%">週</th><th style="width:28%">期間（月/日〜月/日）</th><th style="width:15%">OUT</th><th style="width:15%">IN</th><th style="width:15%">拒否</th><th style="width:15%">合計</th></tr></thead><tbody>${sortedKeys.map((k,i)=>`<tr><td>${k}</td><td>${labels[i]}</td><td>${buckets[i].OUT}</td><td>${buckets[i].IN}</td><td>${buckets[i].DENY}</td><td>${buckets[i].OUT+buckets[i].IN+buckets[i].DENY}</td></tr>`).join('')}</tbody></table>`;
+
+  } else {
+    const monthMap={};
+    for(const e of ev){
+      if(isNaN(e.dt.getTime()))continue;
+      const k=`${e.dt.getFullYear()}/${String(e.dt.getMonth()+1).padStart(2,'0')}`;
+      if(!monthMap[k])monthMap[k]={OUT:0,IN:0,DENY:0};
+      monthMap[k][e.type]++;
+    }
+    const sortedKeys=Object.keys(monthMap).sort();
+    labels=sortedKeys;
+    buckets=sortedKeys.map(k=>monthMap[k]);
+    document.getElementById('hourlySecTitle').textContent='月別チェックアウト数';
+    document.getElementById('peakTitle').textContent='ピーク月（上位5）';
+    tableHtml=`<table><thead><tr><th style="width:20%">年月</th><th style="width:20%">OUT</th><th style="width:20%">IN</th><th style="width:20%">拒否</th><th style="width:20%">合計</th></tr></thead><tbody>${sortedKeys.map((k,i)=>`<tr><td>${k}</td><td>${buckets[i].OUT}</td><td>${buckets[i].IN}</td><td>${buckets[i].DENY}</td><td>${buckets[i].OUT+buckets[i].IN+buckets[i].DENY}</td></tr>`).join('')}</tbody></table>`;
+  }
+
   if(charts.hr)charts.hr.destroy();
-  charts.hr=new Chart(document.getElementById('cHourly'),{type:'bar',data:{labels:Array.from({length:24},(_,i)=>`${String(i).padStart(2,'0')}:00`),datasets:[{label:'OUT',data:h.map(x=>x.OUT),backgroundColor:'#185FA5'},{label:'IN',data:h.map(x=>x.IN),backgroundColor:'#3B6D11'},{label:'DENY',data:h.map(x=>x.DENY),backgroundColor:'#A32D2D'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{autoSkip:false,maxRotation:55,font:{size:10}}},y:{beginAtZero:true}}}});
-  const peaks=h.map((x,i)=>({i,tot:x.OUT+x.IN+x.DENY})).sort((a,b)=>b.tot-a.tot).slice(0,5);
-  const max=peaks[0]?.tot||1;
-  document.getElementById('peakList').innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${peaks.map(p=>`<div><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px"><span>${String(p.i).padStart(2,'0')}:00〜${String(p.i+1).padStart(2,'0')}:00</span><span style="color:#888">${p.tot}件</span></div><div class="bar-bg"><div class="bar-fill" style="width:${Math.round(p.tot/max*100)}%"></div></div></div>`).join('')}</div>`;
+  const tickRot=gran==='hourly'?55:gran==='weekly'?40:35;
+  const autoSkip=gran==='weekly'&&labels.length>20;
+  charts.hr=new Chart(document.getElementById('cHourly'),{type:'bar',data:{labels,datasets:[{label:'OUT',data:buckets.map(x=>x.OUT),backgroundColor:'#185FA5'},{label:'IN',data:buckets.map(x=>x.IN),backgroundColor:'#3B6D11'},{label:'DENY',data:buckets.map(x=>x.DENY),backgroundColor:'#A32D2D'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{autoSkip,maxRotation:tickRot,font:{size:10}}},y:{beginAtZero:true}}}});
+
+  const peakData=buckets.map((x,i)=>({label:labels[i],tot:x.OUT+x.IN+x.DENY})).sort((a,b)=>b.tot-a.tot).slice(0,5);
+  const maxP=peakData[0]?.tot||1;
+  document.getElementById('peakList').innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${peakData.map(p=>`<div><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px"><span>${p.label}</span><span style="color:#888">${p.tot}件</span></div><div class="bar-bg"><div class="bar-fill" style="width:${Math.round(p.tot/maxP*100)}%"></div></div></div>`).join('')}</div>`;
+
+  document.getElementById('granTable').innerHTML=`<div style="margin-top:.5rem" class="tbl-wrap">${tableHtml}</div>`;
 }
 
 function renderProducts(ev){
@@ -244,11 +356,23 @@ function renderProducts(ev){
   document.getElementById('prodTbl').innerHTML=`<table><thead><tr><th style="width:24%">製品名</th><th style="width:10%">OUT</th><th style="width:10%">IN</th><th style="width:8%">拒否</th><th style="width:12%">ライセンス数</th><th style="width:14%">平均使用時間</th><th style="width:8%">ユーザー数</th><th style="width:14%">利用率</th></tr></thead><tbody>${rows.map(([p,d])=>`<tr><td style="font-weight:500">${p}</td><td>${d.OUT}</td><td>${d.IN}</td><td style="color:${d.DENY>0?'#A32D2D':'inherit'}">${d.DENY}</td><td>${d.lic.toLocaleString()}</td><td>${d.OUT?fmtSec(Math.round(d.sec/d.OUT)):'-'}</td><td>${d.users.size}</td><td><div class="bar-bg" style="width:80px"><div class="bar-fill" style="width:${Math.round(d.OUT/maxOut*100)}%"></div></div></td></tr>`).join('')}</tbody></table>`;
 }
 
+let userDir='top';let userSortKey='OUT';
 function renderUsers(ev){
   const um={};
   for(const e of ev){if(!um[e.user])um[e.user]={OUT:0,IN:0,DENY:0,sec:0,prods:new Set(),last:e.ts};um[e.user][e.type]++;if(e.type==='OUT')um[e.user].sec+=e.seconds;um[e.user].prods.add(e.product);if(e.dt>=new Date(um[e.user].last))um[e.user].last=e.ts;}
-  const rows=Object.entries(um).sort((a,b)=>b[1].OUT-a[1].OUT).slice(0,20);
-  document.getElementById('userTbl').innerHTML=`<table><thead><tr><th style="width:20%">ユーザー</th><th style="width:10%">OUT</th><th style="width:10%">IN</th><th style="width:8%">拒否</th><th style="width:14%">合計使用時間</th><th style="width:10%">製品数</th><th style="width:28%">最終利用</th></tr></thead><tbody>${rows.map(([u,d])=>`<tr><td style="font-weight:500">${u}</td><td>${d.OUT}</td><td>${d.IN}</td><td>${d.DENY}</td><td>${fmtSec(d.sec)}</td><td>${d.prods.size}</td><td style="color:#888;font-size:12px">${d.last}</td></tr>`).join('')}</tbody></table>`;
+  const key=userSortKey;
+  const dir=userDir;
+  const rawN=parseInt(document.getElementById('userCount')?.value)||20;
+  const n=Math.max(1,Math.min(rawN,Object.keys(um).length||1));
+  const getVal=([,d])=>key==='sec'?d.sec:(d[key]||0);
+  const allRows=Object.entries(um).sort((a,b)=>getVal(b)-getVal(a));
+  const totalUsers=allRows.length;
+  let rows;
+  if(dir==='top'){rows=allRows.slice(0,n);}
+  else{rows=allRows.slice(-n).reverse();}
+  const label=dir==='top'?'上位':'下位';
+  document.getElementById('userSecTitle').textContent=`ユーザー別使用状況（${label}${n}名 / 全${totalUsers}名）`;
+  document.getElementById('userTbl').innerHTML=`<table><thead><tr><th style="width:4%;color:#aaa">#</th><th style="width:20%">ユーザー</th><th style="width:10%">OUT</th><th style="width:10%">IN</th><th style="width:8%">拒否</th><th style="width:14%">合計使用時間</th><th style="width:10%">製品数</th><th style="width:24%">最終利用</th></tr></thead><tbody>${rows.map(([u,d],i)=>`<tr><td style="color:#aaa;font-size:11px">${dir==='top'?i+1:totalUsers-i}</td><td style="font-weight:500">${u}</td><td>${d.OUT}</td><td>${d.IN}</td><td>${d.DENY}</td><td>${fmtSec(d.sec)}</td><td>${d.prods.size}</td><td style="color:#888;font-size:12px">${d.last}</td></tr>`).join('')}</tbody></table>`;
 }
 
 function buildEvtTable(ev){
@@ -292,6 +416,10 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{document.querySelect
 document.getElementById('fType').onchange=applyFilters;
 document.getElementById('fProd').oninput=applyFilters;
 document.getElementById('fUser').oninput=applyFilters;
+document.querySelectorAll('.gran-btn').forEach(b=>b.onclick=()=>{currentGran=b.dataset.gran;document.querySelectorAll('.gran-btn').forEach(x=>x.classList.remove('active'));b.classList.add('active');if(events.length)renderHourly(events);});
+document.querySelectorAll('.sort-dir').forEach(b=>b.onclick=()=>{userDir=b.dataset.dir;document.querySelectorAll('.sort-dir').forEach(x=>x.classList.remove('active'));b.classList.add('active');if(events.length)renderUsers(events);});
+document.getElementById('userSortKey').onchange=e=>{userSortKey=e.target.value;if(events.length)renderUsers(events);};
+document.getElementById('userCount').oninput=()=>{if(events.length)renderUsers(events);};
 </script>
 </body>
 </html>
