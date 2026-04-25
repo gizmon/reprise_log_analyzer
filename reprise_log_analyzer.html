@@ -112,6 +112,7 @@ tr:hover td{background:#f5f5f3}
         <div class="sec-title" id="hourlySecTitle">時間別チェックアウト数</div>
         <div style="display:flex;gap:2px;background:#eee;padding:3px;border-radius:8px">
           <button class="gran-btn active" data-gran="hourly">時間別</button>
+          <button class="gran-btn" data-gran="daily">日別</button>
           <button class="gran-btn" data-gran="weekly">週別</button>
           <button class="gran-btn" data-gran="monthly">月別</button>
         </div>
@@ -300,6 +301,22 @@ function renderHourly(ev){
     // summary table
     tableHtml=`<table><thead><tr><th style="width:15%">時間</th><th style="width:18%">OUT</th><th style="width:18%">IN</th><th style="width:18%">拒否</th><th style="width:31%">合計</th></tr></thead><tbody>${buckets.map((b,i)=>`<tr><td>${String(i).padStart(2,'0')}:00〜${String(i+1).padStart(2,'0')}:00</td><td>${b.OUT}</td><td>${b.IN}</td><td>${b.DENY}</td><td>${b.OUT+b.IN+b.DENY}</td></tr>`).join('')}</tbody></table>`;
 
+  } else if(gran==='daily'){
+    const dayMap={};
+    for(const e of ev){
+      if(isNaN(e.dt.getTime()))continue;
+      const k=`${e.dt.getFullYear()}/${String(e.dt.getMonth()+1).padStart(2,'0')}/${String(e.dt.getDate()).padStart(2,'0')}`;
+      if(!dayMap[k])dayMap[k]={OUT:0,IN:0,DENY:0};
+      dayMap[k][e.type]++;
+    }
+    const sortedKeys=Object.keys(dayMap).sort();
+    const DOW=['日','月','火','水','木','金','土'];
+    labels=sortedKeys.map(k=>{const d=new Date(k.replace(/\//g,'-'));return`${k.slice(5)}(${DOW[d.getDay()]})`;});
+    buckets=sortedKeys.map(k=>dayMap[k]);
+    document.getElementById('hourlySecTitle').textContent='日別チェックアウト数';
+    document.getElementById('peakTitle').textContent='ピーク日（上位5）';
+    tableHtml=`<table><thead><tr><th style="width:18%">日付</th><th style="width:8%">曜日</th><th style="width:18%">OUT</th><th style="width:18%">IN</th><th style="width:18%">拒否</th><th style="width:20%">合計</th></tr></thead><tbody>${sortedKeys.map((k,i)=>{const d=new Date(k.replace(/\//g,'-'));const isWE=d.getDay()===0||d.getDay()===6;return`<tr style="${isWE?'color:#aaa':''}"><td>${k}</td><td>${DOW[d.getDay()]}</td><td>${buckets[i].OUT}</td><td>${buckets[i].IN}</td><td>${buckets[i].DENY}</td><td>${buckets[i].OUT+buckets[i].IN+buckets[i].DENY}</td></tr>`;}).join('')}</tbody></table>`;
+
   } else if(gran==='weekly'){
     const weekMap={};
     for(const e of ev){
@@ -337,8 +354,8 @@ function renderHourly(ev){
   }
 
   if(charts.hr)charts.hr.destroy();
-  const tickRot=gran==='hourly'?55:gran==='weekly'?40:35;
-  const autoSkip=gran==='weekly'&&labels.length>20;
+  const tickRot=gran==='hourly'?55:gran==='daily'?55:gran==='weekly'?40:35;
+  const autoSkip=(gran==='daily'&&labels.length>31)||(gran==='weekly'&&labels.length>20);
   charts.hr=new Chart(document.getElementById('cHourly'),{type:'bar',data:{labels,datasets:[{label:'OUT',data:buckets.map(x=>x.OUT),backgroundColor:'#185FA5'},{label:'IN',data:buckets.map(x=>x.IN),backgroundColor:'#3B6D11'},{label:'DENY',data:buckets.map(x=>x.DENY),backgroundColor:'#A32D2D'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{autoSkip,maxRotation:tickRot,font:{size:10}}},y:{beginAtZero:true}}}});
 
   const peakData=buckets.map((x,i)=>({label:labels[i],tot:x.OUT+x.IN+x.DENY})).sort((a,b)=>b.tot-a.tot).slice(0,5);
