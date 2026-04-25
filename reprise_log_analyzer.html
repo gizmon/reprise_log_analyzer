@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reprise Log Analyzer</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1a1a1a;background:#f5f5f3;font-size:14px;line-height:1.5;padding:1.5rem}
+h1{font-size:18px;font-weight:500;margin-bottom:1.5rem;color:#1a1a1a}
+.upload-area{border:1.5px dashed #ccc;border-radius:12px;padding:2.5rem 2rem;text-align:center;cursor:pointer;background:#fafafa;transition:border-color .15s}
+.upload-area:hover,.upload-area.drag{border-color:#185FA5}
+.upload-title{font-size:15px;font-weight:500;margin-bottom:.4rem}
+.upload-sub{font-size:13px;color:#666;margin-bottom:1rem}
+.fmt-box{background:#fff;border:0.5px solid #ddd;border-radius:8px;padding:.6rem 1rem;margin:.75rem auto 0;max-width:480px;text-align:left;font-size:12px;color:#666;font-family:monospace}
+.topbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:1.25rem}
+.file-chip{font-size:12px;color:#666;background:#eee;padding:4px 10px;border-radius:8px}
+.tabs{display:flex;gap:3px;background:#eee;padding:3px;border-radius:8px}
+.tab{padding:5px 13px;border-radius:6px;border:none;background:none;cursor:pointer;font-size:13px;color:#666;font-family:inherit}
+.tab.active{background:#fff;color:#1a1a1a;border:0.5px solid #ccc;font-weight:500}
+.reset-btn{padding:5px 11px;border-radius:8px;border:0.5px solid #ccc;background:none;cursor:pointer;font-size:12px;color:#666;font-family:inherit}
+.reset-btn:hover{background:#eee}
+.panel{display:none}.panel.active{display:block}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:1.25rem}
+.mc{background:#eee;border-radius:8px;padding:.9rem}
+.mc-label{font-size:12px;color:#666;margin-bottom:.25rem}
+.mc-val{font-size:22px;font-weight:500}
+.mc-sub{font-size:11px;color:#888;margin-top:.2rem}
+.section{margin-bottom:1.5rem}
+.sec-title{font-size:15px;font-weight:500;margin-bottom:.75rem}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:8px;font-size:12px;color:#666}
+.legend span{display:flex;align-items:center;gap:5px}
+.dot{width:10px;height:10px;border-radius:2px;display:inline-block}
+.chart-wrap{position:relative;width:100%}
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+th{text-align:left;padding:7px 10px;border-bottom:0.5px solid #ccc;color:#666;font-weight:500;font-size:12px}
+td{padding:7px 10px;border-bottom:0.5px solid #eee;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#f5f5f3}
+.badge{display:inline-block;padding:2px 7px;border-radius:8px;font-size:11px;font-weight:500}
+.b-out{background:#E6F1FB;color:#0C447C}
+.b-in{background:#EAF3DE;color:#27500A}
+.b-deny{background:#FCEBEB;color:#791F1F}
+.bar-bg{background:#ddd;border-radius:2px;height:5px;overflow:hidden}
+.bar-fill{height:100%;border-radius:2px;background:#185FA5}
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem}
+.filters select,.filters input{font-size:13px;padding:5px 10px;border-radius:8px;border:0.5px solid #ccc;background:#fff;color:#1a1a1a;font-family:inherit}
+.no-data{color:#888;padding:1.5rem;text-align:center;font-size:13px}
+.sample-btn{margin-top:.75rem;padding:7px 18px;border-radius:8px;border:0.5px solid #ccc;background:#fff;cursor:pointer;font-size:13px;color:#1a1a1a;font-family:inherit}
+.sample-btn:hover{background:#f0f0f0}
+</style>
+</head>
+<body>
+<h1>Reprise Log Analyzer</h1>
+
+<div id="upload-view">
+  <div class="upload-area" id="dropzone">
+    <div class="upload-title">rlm_reportlog ファイルをドロップ</div>
+    <div class="upload-sub">またはクリックしてファイルを選択（.log / .txt）</div>
+    <input type="file" id="fileInput" accept=".log,.txt,.rlm" style="display:none">
+    <div class="fmt-box">
+      START isv_name<br>
+      &nbsp;&nbsp;OUT product 1.0 count yyyy/mm/dd HH:MM for seconds user@host handle=N<br>
+      &nbsp;&nbsp;IN &nbsp;product 1.0 count yyyy/mm/dd HH:MM for seconds user@host handle=N<br>
+      &nbsp;&nbsp;DENY product 1.0 user@host yyyy/mm/dd HH:MM reason="..."<br>
+      END isv_name
+    </div>
+    <button class="sample-btn" id="sampleBtn">サンプルデータで試す</button>
+  </div>
+</div>
+
+<div id="analysis-view" style="display:none">
+  <div class="topbar">
+    <span class="file-chip" id="fileChip"></span>
+    <div style="display:flex;gap:8px;align-items:center">
+      <div class="tabs">
+        <button class="tab active" data-tab="overview">概要</button>
+        <button class="tab" data-tab="hourly">時間別</button>
+        <button class="tab" data-tab="products">製品別</button>
+        <button class="tab" data-tab="users">ユーザー別</button>
+        <button class="tab" data-tab="events">イベント</button>
+      </div>
+      <button class="reset-btn" id="resetBtn">↺ リセット</button>
+    </div>
+  </div>
+
+  <div class="panel active" id="tab-overview">
+    <div class="metrics" id="metricsRow"></div>
+    <div class="section">
+      <div class="sec-title">製品別チェックアウト数</div>
+      <div class="legend">
+        <span><span class="dot" style="background:#185FA5"></span>チェックアウト</span>
+        <span><span class="dot" style="background:#3B6D11"></span>チェックイン</span>
+        <span><span class="dot" style="background:#A32D2D"></span>拒否</span>
+      </div>
+      <div class="chart-wrap" style="height:220px"><canvas id="cOverview" role="img" aria-label="製品別チェックアウト数グラフ">製品別チェックアウト数</canvas></div>
+    </div>
+    <div class="section">
+      <div class="sec-title">最新イベント（直近10件）</div>
+      <div class="tbl-wrap" id="recentTbl"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="tab-hourly">
+    <div class="section">
+      <div class="sec-title">時間別チェックアウト数（0〜23時）</div>
+      <div class="legend">
+        <span><span class="dot" style="background:#185FA5"></span>チェックアウト</span>
+        <span><span class="dot" style="background:#3B6D11"></span>チェックイン</span>
+        <span><span class="dot" style="background:#A32D2D"></span>拒否</span>
+      </div>
+      <div class="chart-wrap" style="height:260px"><canvas id="cHourly" role="img" aria-label="時間別チェックアウト数グラフ">時間別チェックアウト数</canvas></div>
+    </div>
+    <div class="section">
+      <div class="sec-title">ピーク時間帯（上位5）</div>
+      <div id="peakList"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="tab-products">
+    <div class="section">
+      <div class="sec-title">製品別使用状況</div>
+      <div class="tbl-wrap" id="prodTbl"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="tab-users">
+    <div class="section">
+      <div class="sec-title">ユーザー別使用状況（上位20名）</div>
+      <div class="tbl-wrap" id="userTbl"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="tab-events">
+    <div class="filters">
+      <select id="fType"><option value="">すべての種別</option><option value="OUT">チェックアウト (OUT)</option><option value="IN">チェックイン (IN)</option><option value="DENY">拒否 (DENY)</option></select>
+      <input id="fProd" type="text" placeholder="製品名で絞り込み">
+      <input id="fUser" type="text" placeholder="ユーザーで絞り込み">
+    </div>
+    <div class="tbl-wrap" id="eventTbl"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+let events=[];const charts={};
+
+function genSample(){
+  const products=['Lite','Pro','BIM','Mechanical','Ultimate'];
+  const users=['tanaka','suzuki','sato','yamada','ito','nakamura','kobayashi','watanabe','kato','yoshida'];
+  const hosts=['ws-01','ws-02','ws-03','ws-04','ws-05','srv-01'];
+  let lines=[];
+  const base=new Date('2024/04/15');
+  lines.push('START mathworks');
+  for(let i=0;i<500;i++){
+    const t=new Date(base.getTime()+Math.random()*86400000);
+    const prod=products[Math.floor(Math.random()*products.length)];
+    const user=users[Math.floor(Math.random()*users.length)];
+    const host=hosts[Math.floor(Math.random()*hosts.length)];
+    const cnt=Math.floor(Math.random()*5)+1;
+    const type=Math.random()<0.06?'DENY':Math.random()<0.5?'OUT':'IN';
+    const sec=Math.floor(Math.random()*7200)+60;
+    const ts=`${t.getFullYear()}/${String(t.getMonth()+1).padStart(2,'0')}/${String(t.getDate()).padStart(2,'0')} ${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`;
+    const handle=Math.floor(Math.random()*9000)+1000;
+    if(type==='DENY') lines.push(`  DENY ${prod} 1.0 ${user}@${host} ${ts} reason="no licenses available"`);
+    else lines.push(`  ${type} ${prod} 1.0 ${cnt} ${ts} for ${sec} ${user}@${host} handle=${handle}`);
+  }
+  lines.push('END mathworks');
+  return lines.join('\n');
+}
+
+function parseRlmReport(text){
+  const evts=[];
+  let isvName='';
+  for(const raw of text.split('\n')){
+    const line=raw.trim();
+    if(!line||line.startsWith('#'))continue;
+    const mStart=line.match(/^START\s+(\S+)/i);
+    if(mStart){isvName=mStart[1];continue;}
+    if(/^END\s+/i.test(line)){isvName='';continue;}
+    const mOut=line.match(/^(OUT|IN)\s+(\S+)\s+(\S+)\s+(\d+)\s+(\d{4}[\/\-]\d{2}[\/\-]\d{2}\s+\d{2}:\d{2})\s+for\s+(\d+)\s+(\S+)/i);
+    if(mOut){
+      const dt=new Date(mOut[5].replace(/\//g,'-'));
+      const[u,h]=(mOut[7]||'').split('@');
+      evts.push({type:mOut[1].toUpperCase(),product:mOut[2],version:mOut[3],count:parseInt(mOut[4]),ts:mOut[5],dt,seconds:parseInt(mOut[6]),user:u||mOut[7],host:h||'',isv:isvName});
+      continue;
+    }
+    const mDeny=line.match(/^DENY\s+(\S+)\s+(\S+)\s+(\S+)\s+(\d{4}[\/\-]\d{2}[\/\-]\d{2}\s+\d{2}:\d{2})/i);
+    if(mDeny){
+      const dt=new Date(mDeny[4].replace(/\//g,'-'));
+      const[u,h]=(mDeny[3]||'').split('@');
+      evts.push({type:'DENY',product:mDeny[1],version:mDeny[2],count:0,ts:mDeny[4],dt,seconds:0,user:u||mDeny[3],host:h||'',isv:isvName});
+    }
+  }
+  return evts;
+}
+
+function fmtSec(s){if(s<60)return s+'秒';if(s<3600)return Math.round(s/60)+'分';return(s/3600).toFixed(1)+'時間';}
+
+function renderMetrics(ev){
+  const outs=ev.filter(e=>e.type==='OUT');
+  const denies=ev.filter(e=>e.type==='DENY');
+  const totalLic=outs.reduce((a,e)=>a+e.count,0);
+  const avgSec=outs.length?Math.round(outs.reduce((a,e)=>a+e.seconds,0)/outs.length):0;
+  const prods=new Set(ev.map(e=>e.product)).size;
+  const users=new Set(ev.map(e=>e.user)).size;
+  const denyRate=outs.length+denies.length>0?Math.round(denies.length/(outs.length+denies.length)*100):0;
+  document.getElementById('metricsRow').innerHTML=[
+    {l:'総イベント数',v:ev.length.toLocaleString(),s:''},
+    {l:'チェックアウト',v:outs.length.toLocaleString(),s:`ライセンス数合計 ${totalLic.toLocaleString()}`},
+    {l:'拒否',v:denies.length.toLocaleString(),s:`拒否率 ${denyRate}%`},
+    {l:'平均使用時間',v:fmtSec(avgSec),s:'チェックアウトのみ'},
+    {l:'製品数',v:prods,s:''},
+    {l:'ユーザー数',v:users,s:'ユニーク'},
+  ].map(m=>`<div class="mc"><div class="mc-label">${m.l}</div><div class="mc-val">${m.v}</div>${m.s?`<div class="mc-sub">${m.s}</div>`:''}</div>`).join('');
+}
+
+function renderOverview(ev){
+  const pm={};
+  for(const e of ev){if(!pm[e.product])pm[e.product]={OUT:0,IN:0,DENY:0};pm[e.product][e.type]++;}
+  const sorted=Object.entries(pm).sort((a,b)=>b[1].OUT-a[1].OUT).slice(0,9);
+  if(charts.ov)charts.ov.destroy();
+  charts.ov=new Chart(document.getElementById('cOverview'),{type:'bar',data:{labels:sorted.map(x=>x[0]),datasets:[{label:'OUT',data:sorted.map(x=>x[1].OUT),backgroundColor:'#185FA5'},{label:'IN',data:sorted.map(x=>x[1].IN),backgroundColor:'#3B6D11'},{label:'DENY',data:sorted.map(x=>x[1].DENY),backgroundColor:'#A32D2D'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{autoSkip:false,maxRotation:35,font:{size:11}}},y:{beginAtZero:true}}}});
+  const recent=[...ev].sort((a,b)=>b.dt-a.dt).slice(0,10);
+  document.getElementById('recentTbl').innerHTML=buildEvtTable(recent);
+}
+
+function renderHourly(ev){
+  const h=Array.from({length:24},()=>({OUT:0,IN:0,DENY:0}));
+  for(const e of ev){const hr=e.dt.getHours();if(!isNaN(hr))h[hr][e.type]++;}
+  if(charts.hr)charts.hr.destroy();
+  charts.hr=new Chart(document.getElementById('cHourly'),{type:'bar',data:{labels:Array.from({length:24},(_,i)=>`${String(i).padStart(2,'0')}:00`),datasets:[{label:'OUT',data:h.map(x=>x.OUT),backgroundColor:'#185FA5'},{label:'IN',data:h.map(x=>x.IN),backgroundColor:'#3B6D11'},{label:'DENY',data:h.map(x=>x.DENY),backgroundColor:'#A32D2D'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{autoSkip:false,maxRotation:55,font:{size:10}}},y:{beginAtZero:true}}}});
+  const peaks=h.map((x,i)=>({i,tot:x.OUT+x.IN+x.DENY})).sort((a,b)=>b.tot-a.tot).slice(0,5);
+  const max=peaks[0]?.tot||1;
+  document.getElementById('peakList').innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${peaks.map(p=>`<div><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px"><span>${String(p.i).padStart(2,'0')}:00〜${String(p.i+1).padStart(2,'0')}:00</span><span style="color:#888">${p.tot}件</span></div><div class="bar-bg"><div class="bar-fill" style="width:${Math.round(p.tot/max*100)}%"></div></div></div>`).join('')}</div>`;
+}
+
+function renderProducts(ev){
+  const pm={};
+  for(const e of ev){if(!pm[e.product])pm[e.product]={OUT:0,IN:0,DENY:0,lic:0,sec:0,users:new Set()};pm[e.product][e.type]++;if(e.type==='OUT'){pm[e.product].lic+=e.count;pm[e.product].sec+=e.seconds;}pm[e.product].users.add(e.user);}
+  const rows=Object.entries(pm).sort((a,b)=>b[1].OUT-a[1].OUT);
+  const maxOut=rows[0]?rows[0][1].OUT:1;
+  document.getElementById('prodTbl').innerHTML=`<table><thead><tr><th style="width:24%">製品名</th><th style="width:10%">OUT</th><th style="width:10%">IN</th><th style="width:8%">拒否</th><th style="width:12%">ライセンス数</th><th style="width:14%">平均使用時間</th><th style="width:8%">ユーザー数</th><th style="width:14%">利用率</th></tr></thead><tbody>${rows.map(([p,d])=>`<tr><td style="font-weight:500">${p}</td><td>${d.OUT}</td><td>${d.IN}</td><td style="color:${d.DENY>0?'#A32D2D':'inherit'}">${d.DENY}</td><td>${d.lic.toLocaleString()}</td><td>${d.OUT?fmtSec(Math.round(d.sec/d.OUT)):'-'}</td><td>${d.users.size}</td><td><div class="bar-bg" style="width:80px"><div class="bar-fill" style="width:${Math.round(d.OUT/maxOut*100)}%"></div></div></td></tr>`).join('')}</tbody></table>`;
+}
+
+function renderUsers(ev){
+  const um={};
+  for(const e of ev){if(!um[e.user])um[e.user]={OUT:0,IN:0,DENY:0,sec:0,prods:new Set(),last:e.ts};um[e.user][e.type]++;if(e.type==='OUT')um[e.user].sec+=e.seconds;um[e.user].prods.add(e.product);if(e.dt>=new Date(um[e.user].last))um[e.user].last=e.ts;}
+  const rows=Object.entries(um).sort((a,b)=>b[1].OUT-a[1].OUT).slice(0,20);
+  document.getElementById('userTbl').innerHTML=`<table><thead><tr><th style="width:20%">ユーザー</th><th style="width:10%">OUT</th><th style="width:10%">IN</th><th style="width:8%">拒否</th><th style="width:14%">合計使用時間</th><th style="width:10%">製品数</th><th style="width:28%">最終利用</th></tr></thead><tbody>${rows.map(([u,d])=>`<tr><td style="font-weight:500">${u}</td><td>${d.OUT}</td><td>${d.IN}</td><td>${d.DENY}</td><td>${fmtSec(d.sec)}</td><td>${d.prods.size}</td><td style="color:#888;font-size:12px">${d.last}</td></tr>`).join('')}</tbody></table>`;
+}
+
+function buildEvtTable(ev){
+  if(!ev.length)return`<div class="no-data">該当するイベントがありません</div>`;
+  return`<table><thead><tr><th style="width:18%">日時</th><th style="width:10%">種別</th><th style="width:20%">製品</th><th style="width:8%">Ver</th><th style="width:7%">数量</th><th style="width:17%">ユーザー</th><th style="width:10%">ホスト</th><th style="width:10%">使用時間</th></tr></thead><tbody>${ev.map(e=>`<tr><td style="font-size:12px">${e.ts}</td><td><span class="badge b-${e.type.toLowerCase()}">${e.type}</span></td><td>${e.product}</td><td style="color:#888">${e.version}</td><td>${e.count||'-'}</td><td>${e.user}</td><td style="color:#888">${e.host||'-'}</td><td>${e.seconds?fmtSec(e.seconds):'-'}</td></tr>`).join('')}</tbody></table>`;
+}
+
+function applyFilters(){
+  const type=document.getElementById('fType').value;
+  const prod=document.getElementById('fProd').value.toLowerCase();
+  const user=document.getElementById('fUser').value.toLowerCase();
+  let f=events;
+  if(type)f=f.filter(e=>e.type===type);
+  if(prod)f=f.filter(e=>e.product.toLowerCase().includes(prod));
+  if(user)f=f.filter(e=>e.user.toLowerCase().includes(user));
+  document.getElementById('eventTbl').innerHTML=buildEvtTable(f.slice(-300).reverse());
+}
+
+function analyze(text,name){
+  events=parseRlmReport(text);
+  if(!events.length){alert('rlm_reportlog 形式のイベントが見つかりませんでした。');return;}
+  document.getElementById('upload-view').style.display='none';
+  document.getElementById('analysis-view').style.display='block';
+  document.getElementById('fileChip').textContent=`${name} — ${events.length.toLocaleString()}件のイベント`;
+  renderMetrics(events);
+  setTimeout(()=>{renderOverview(events);renderHourly(events);},80);
+  renderProducts(events);
+  renderUsers(events);
+  document.getElementById('eventTbl').innerHTML=buildEvtTable([...events].reverse().slice(0,300));
+}
+
+const dz=document.getElementById('dropzone');
+dz.onclick=()=>document.getElementById('fileInput').click();
+dz.ondragover=e=>{e.preventDefault();dz.classList.add('drag')};
+dz.ondragleave=()=>dz.classList.remove('drag');
+dz.ondrop=e=>{e.preventDefault();dz.classList.remove('drag');const f=e.dataTransfer.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>analyze(ev.target.result,f.name);r.readAsText(f,'utf-8');};
+document.getElementById('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>analyze(ev.target.result,f.name);r.readAsText(f,'utf-8');};
+document.getElementById('sampleBtn').onclick=e=>{e.stopPropagation();analyze(genSample(),'sample_rlm_reportlog.log');};
+document.getElementById('resetBtn').onclick=()=>{document.getElementById('upload-view').style.display='block';document.getElementById('analysis-view').style.display='none';events=[];document.getElementById('fileInput').value='';};
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));t.classList.add('active');document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.getElementById('tab-'+t.dataset.tab).classList.add('active');});
+document.getElementById('fType').onchange=applyFilters;
+document.getElementById('fProd').oninput=applyFilters;
+document.getElementById('fUser').oninput=applyFilters;
+</script>
+</body>
+</html>
